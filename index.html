@@ -5,6 +5,55 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Ferre Montaj-1 Arıza Yönetim Sistemi</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+import { getFirestore, collection, addDoc, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAmq1nMp_Leq6sFmMfb4UWjUq9W5472mqM",
+  authDomain: "ferre-ariza.firebaseapp.com",
+  projectId: "ferre-ariza",
+  storageBucket: "ferre-ariza.firebasestorage.app",
+  messagingSenderId: "973592129613",
+  appId: "1:973592129613:web:cd39c71fc70769c81eec04",
+  measurementId: "G-ZS3XRP8WC1"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db = getFirestore(fbApp);
+const arizaCol = collection(db, "arizalar");
+
+// Firebase'e yeni arıza yaz
+window.firebaseEkle = async function(kayit){
+  try {
+    await addDoc(arizaCol, { ...kayit, olusturma: Date.now() });
+    return true;
+  } catch(e){
+    console.error("Firebase yazma hatası:", e);
+    return false;
+  }
+};
+
+// Firebase'den canlı dinle — her değişiklikte tetiklenir
+window.firebaseDinle = function(callback){
+  const q = query(arizaCol, orderBy("olusturma", "desc"));
+  onSnapshot(q, (snapshot) => {
+    const kayitlar = [];
+    snapshot.forEach((doc) => {
+      const d = doc.data();
+      delete d.olusturma;
+      kayitlar.push(d);
+    });
+    callback(kayitlar);
+  }, (err) => {
+    console.error("Firebase dinleme hatası:", err);
+  });
+};
+
+window.firebaseHazir = true;
+window.dispatchEvent(new Event('firebase-ready'));
+</script>
+
 <style>
 *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif}
 body{background:#0f172a;color:#e2e8f0;min-height:100vh}
@@ -757,10 +806,22 @@ function modalKapat(){
 
 function kaydetOnayla(){
   if(!onayBekleyen) return;
-  kayitlar.unshift(onayBekleyen);
-  toast('✓ Arıza kaydı eklendi');
+  // Firebase'e yaz (varsa); yoksa lokal ekle
+  if(window.firebaseHazir && window.firebaseEkle){
+    window.firebaseEkle(onayBekleyen).then(function(ok){
+      if(ok){ toast('✓ Arıza kaydı buluta kaydedildi'); }
+      else { toast('⚠ Bulut hatası, yerel kaydedildi', true); kayitlar.unshift(onayBekleyen); yenidenCiz(); }
+    });
+  } else {
+    kayitlar.unshift(onayBekleyen);
+    toast('✓ Arıza kaydı eklendi (yerel)');
+    yenidenCiz();
+  }
   modalKapat();
   sifirla();
+}
+
+function yenidenCiz(){
   uretGruplar();
   doldKayitlar();
   guncelleStatlar();
@@ -1078,6 +1139,25 @@ function init(){
 }
 
 init();
+
+// Firebase canlı dinleme: bulutta veri değişince ekran otomatik güncellenir
+function firebaseBaglan(){
+  if(window.firebaseHazir && window.firebaseDinle){
+    window.firebaseDinle(function(bulutKayitlar){
+      if(bulutKayitlar && bulutKayitlar.length > 0){
+        // Bulut kayıtlarını başa koy, başlangıç verisiyle birleştir
+        kayitlar = bulutKayitlar.concat(KAYITLAR);
+        yenidenCiz();
+        const durum = document.querySelector('.status-badge span:last-child');
+        if(durum) durum.textContent = 'Buluta bağlı • ' + bulutKayitlar.length + ' canlı kayıt';
+      }
+    });
+  } else {
+    // Firebase henüz hazır değilse, hazır olunca bağlan
+    window.addEventListener('firebase-ready', firebaseBaglan, { once: true });
+  }
+}
+firebaseBaglan();
 </script>
 </body>
 </html>
